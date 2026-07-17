@@ -1,0 +1,68 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gfn-prod
+
+# Registers nvidia as an available runtime — does NOT set as default.
+# System pods (device plugin's own controller aside, kube-proxy, etc.) stay on runc.
+# Only pods/DaemonSets with runtimeClassName: nvidia use nvidia-container-runtime.
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+
+nodes:
+  - role: control-plane
+
+  - role: worker
+    labels:
+      node-pool: gpu-inference
+      tier: prod
+      nvidia.com/gpu.present: "true"
+    extraMounts:
+      # ── GPU character devices ──────────────────────────────────────────
+      - hostPath: /dev/nvidia0
+        containerPath: /dev/nvidia0
+      - hostPath: /dev/nvidiactl
+        containerPath: /dev/nvidiactl
+      - hostPath: /dev/nvidia-uvm
+        containerPath: /dev/nvidia-uvm
+      - hostPath: /dev/nvidia-uvm-tools
+        containerPath: /dev/nvidia-uvm-tools
+
+      # ── NVIDIA userspace libs ───────────────────────────────────────────
+      - hostPath: /opt/nvidia-libs
+        containerPath: /opt/nvidia-libs
+        readOnly: true
+
+      # ── nvidia-container-runtime toolkit binaries ──────────────────────
+      # runtime → OCI wrapper, called by containerd
+      # hook    → prestart hook, called by runc
+      # cli     → device injector, called by hook
+      # ctk     → config helper, referenced in config
+      - hostPath: /usr/bin/nvidia-container-runtime
+        containerPath: /usr/bin/nvidia-container-runtime
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-runtime-hook
+        containerPath: /usr/bin/nvidia-container-runtime-hook
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-cli
+        containerPath: /usr/bin/nvidia-container-cli
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-ctk
+        containerPath: /usr/bin/nvidia-ctk
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-smi
+        containerPath: /usr/bin/nvidia-smi
+
+      # ── nvidia-container-runtime config ─────────────────────────────────
+      - hostPath: /etc/nvidia-container-runtime
+        containerPath: /etc/nvidia-container-runtime
+        readOnly: true
+
+  - role: worker
+    labels: { node-pool: cpu-general, tier: prod }
+
+  - role: worker
+    labels: { node-pool: cpu-general, tier: staging }

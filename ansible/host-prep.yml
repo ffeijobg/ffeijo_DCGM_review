@@ -1,0 +1,82 @@
+- name: Prepare GPU host for kind + Kubernetes GPU workloads
+  hosts: gpu_hosts
+  become: true
+  vars:
+    kind_version: "v0.23.0"
+    kubectl_version: "v1.30.0"
+
+  tasks:
+    - name: Confirm NVIDIA driver is present on the host
+      command: nvidia-smi -L
+      register: driver_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail fast with a clear message if no driver
+      fail:
+        msg: >
+          nvidia-smi did not return a GPU. Install the host driver first —
+          this playbook does not install kernel drivers, only container tooling.
+      when: driver_check.rc != 0
+
+    - name: Install Docker Engine
+      apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Add NVIDIA Container Toolkit apt repo
+      shell: |
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+          | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit.gpg
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+          | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit.gpg] https://#g' \
+          | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      args:
+        creates: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+    - name: Install nvidia-container-toolkit
+      apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: true
+
+    - name: Check whether docker daemon.json already has the nvidia runtime
+      command: grep -q '"nvidia"' /etc/docker/daemon.json
+      register: nvidia_runtime_present
+      changed_when: false
+      failed_when: false
+
+    # Deliberately NOT --set-as-default: this host runs other, non-GPU Docker
+    # workloads, and setting nvidia as the system-wide default runtime would
+    # affect all of them, not just kind's node containers. GPU access for the
+    # kind node containers is provided via kind-config.yaml's extraMounts
+    # instead (devices + driver libs + toolkit binaries bind-mounted directly).
+    - name: Register nvidia runtime with Docker
+      command: nvidia-ctk runtime configure --runtime=docker
+      when: nvidia_runtime_present.rc != 0
+      notify: restart docker
+
+    - name: Ensure kind is installed
+      get_url:
+        url: "https://kind.sigs.k8s.io/dl/{{ kind_version }}/kind-linux-amd64"
+        dest: /usr/local/bin/kind
+        mode: "0755"
+
+    - name: Ensure kubectl is installed
+      get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+
+    - name: Ensure helm is installed
+      shell: |
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+  handlers:
+    - name: restart docker
+      service:
+        name: docker
+        state: restarted
