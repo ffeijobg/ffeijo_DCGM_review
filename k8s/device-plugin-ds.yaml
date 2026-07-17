@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin
+    spec:
+      runtimeClassName: nvidia
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: nvidia-device-plugin-ctr
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.16.1
+          # This node's /etc/nvidia-container-runtime/config.toml sets
+          # no-cgroups = true (required because nvidia-container-cli can't
+          # modify cgroups from inside a nested kind node). That disables
+          # NVIDIA's own cgroup device grant, and this pod can't get one via
+          # the normal resources.limits.nvidia.com/gpu route either — it's
+          # what provides that resource in the first place. privileged: true
+          # is the only way this container actually gets to open /dev/nvidia*
+          # once no-cgroups is set; without it NVML fails with a generic
+          # "Unknown Error" even though the device files are visible.
+          securityContext:
+            privileged: true
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "all"
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
