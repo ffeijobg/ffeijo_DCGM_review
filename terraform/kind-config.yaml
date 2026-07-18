@@ -61,6 +61,21 @@ nodes:
         containerPath: /etc/nvidia-container-runtime
         readOnly: true
 
+  # These two workers deliberately get none of the GPU worker's extraMounts —
+  # no /dev/nvidia*, no toolkit binaries, no /opt/nvidia-libs. That's the
+  # point: they represent ordinary CPU nodes in the pool.
+  #
+  # IMPORTANT — if you install the NVIDIA GPU Operator (Phase 9) against this
+  # cluster, taint both of these nodes first (Phase 5: `no-gpu-runtime`).
+  # Confirmed live: every kind node here is a container on the same physical
+  # host, and PCI enumeration (/sys/bus/pci) is visible host-wide, so Node
+  # Feature Discovery (and the Operator's own controller, independent of NFD)
+  # labels ALL nodes nvidia.com/gpu.present=true — including these two and
+  # the control-plane — not just gfn-prod-worker. Disabling NFD and manually
+  # stripping the label does not reliably stop it from being reasserted, and
+  # the ClusterPolicy CRD (chart v26.3.3) has no field to override per-
+  # component node placement. Only a taint the Operator's DaemonSets don't
+  # tolerate (i.e. not key `nvidia.com/gpu`) actually blocks scheduling here.
   - role: worker
     labels: { node-pool: cpu-general, tier: prod }
 
