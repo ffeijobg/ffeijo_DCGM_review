@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: dcgm-exporter
+  template:
+    metadata:
+      labels:
+        name: dcgm-exporter
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: dcgm-exporter
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04
+          # Required for DCGM diagnostics/profiling, and also the only way
+          # this container gets actual cgroup access to /dev/nvidia* given
+          # this node's no-cgroups = true nvidia-container-runtime config —
+          # see the matching comment in device-plugin-ds.yaml.
+          securityContext:
+            privileged: true
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "all"
+          ports:
+            - containerPort: 9400
+              name: metrics

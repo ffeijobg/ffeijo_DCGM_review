@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: model-cache
+  namespace: ai-workloads
+spec:
+  serviceName: model-cache
+  replicas: 2
+  selector:
+    matchLabels:
+      app: model-cache
+  template:
+    metadata:
+      labels:
+        app: model-cache
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: cache
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep infinity"]
+          volumeMounts:
+            - name: cache-data
+              mountPath: /cache
+  volumeClaimTemplates:
+    - metadata:
+        name: cache-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
